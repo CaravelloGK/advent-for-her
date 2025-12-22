@@ -5,6 +5,45 @@
     <title>🎁</title>
   </head>
   <body>
-    <h1>Скоро здесь будет магия ✨</h1>
+    <h1>🎁 Адвент</h1>
+    <div id="days"></div>
+  
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script>
+      const supabase = supabase.createClient(
+        'https://eeopmulgnvletwcwqzna.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlb3BtdWxnbnZsZXR3Y3dxem5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyNTQ4NjUsImV4cCI6MjA4MTgzMDg2NX0.dknCEE0AZdwA2Lv73tOWWFtAu64dXz-CdUj1CypyzIo'
+      );
+  
+      async function loadDays() {
+        const { data, error } = await supabase
+          .from('days')
+          .select('*')
+          .order('id');
+  
+        if (error) {
+          document.getElementById('days').innerText = 'Ошибка загрузки 😢';
+          console.error(error);
+          return;
+        }
+  
+        const container = document.getElementById('days');
+        container.innerHTML = '';
+  
+        data.forEach(day => {
+          const div = document.createElement('div');
+          div.innerHTML = `
+            <div style="border:1px solid #ccc; padding:12px; margin:8px">
+              <strong>День ${day.id}</strong><br/>
+              ${day.puzzle_data.question}
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      }
+  
+      loadDays();
+    </script>
   </body>
+  
 </html>
