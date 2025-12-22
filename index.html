@@ -74,41 +74,39 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
   <script>
-    const supabase = window.supabase.createClient(
+    const supabaseClient = window.supabase.createClient(
       'https://eeopmulgnvletwcwqzna.supabase.co',
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlb3BtdWxnbnZsZXR3Y3dxem5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyNTQ4NjUsImV4cCI6MjA4MTgzMDg2NX0.dknCEE0AZdwA2Lv73tOWWFtAu64dXz-CdUj1CypyzIo'
     );
-
+  
     async function loadDays() {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('days')
         .select('*')
         .order('id');
-
+  
       const container = document.getElementById('days');
-
+  
       if (error) {
         console.error(error);
         container.innerText = 'Ошибка загрузки 😢';
         return;
       }
-
+  
       container.innerHTML = '';
-
+  
       data.forEach(day => {
         const div = document.createElement('div');
         div.className = 'day';
-
         div.innerHTML = `
           <div class="day-number">День ${day.id}</div>
           <div class="day-question">${day.puzzle_data.question}</div>
         `;
-
         container.appendChild(div);
       });
     }
-
+  
     loadDays();
-  </script>
+  </script>  
 </body>
 </html>
