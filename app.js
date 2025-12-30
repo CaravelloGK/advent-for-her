@@ -1,0 +1,1297 @@
+// Главный файл приложения
+
+// Получаем URL функций из supabase.js (должен быть загружен раньше)
+// Используем функцию для получения значения, чтобы избежать конфликта имён
+function getSupabaseFunctionsUrl() {
+  return window.SUPABASE_FUNCTIONS_URL || 'https://eeopmulgnvletwcwqzna.supabase.co/functions/v1';
+}
+
+function getSupabaseAnonKey() {
+  return window.SUPABASE_ANON_KEY || '';
+}
+
+// Экранирование HTML для безопасной вставки в атрибуты
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Утилиты для нормализации ответа
+function normalizeAnswer(answer) {
+  return answer
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ');
+}
+
+// Проверка, доступен ли день
+function isDayUnlocked(unlockAt) {
+  if (!unlockAt) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const unlockDate = new Date(unlockAt);
+  unlockDate.setHours(0, 0, 0, 0);
+  return unlockDate <= today;
+}
+
+// Форматирование даты
+function formatDate(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long'
+  });
+}
+
+// Получение дня недели
+function getWeekday(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('ru-RU', {
+    weekday: 'short'
+  });
+}
+
+// Получение числа дня
+function getDayNumber(dateString) {
+  const date = new Date(dateString);
+  return date.getDate();
+}
+
+// Загрузка дней из БД
+async function loadDays() {
+  const container = document.getElementById('days');
+  if (!container) {
+    console.error('Элемент #days не найден!');
+    return;
+  }
+
+  container.innerHTML = '<div class="loading">Загрузка…</div>';
+
+  // Проверяем, что supabaseClient доступен
+  const client = window.supabaseClient || supabaseClient;
+  if (!client) {
+    console.error('supabaseClient не определён! Проверь порядок загрузки скриптов.');
+    container.innerHTML = '<div class="loading">Ошибка: Supabase не загружен 😢<br><small>Открой консоль (F12) для деталей</small></div>';
+    return;
+  }
+
+  try {
+    console.log('Загружаю дни из БД...');
+    
+    // Загружаем дни (без reward_data)
+    const { data: daysData, error: daysError } = await client
+      .from('days')
+      .select('id, unlock_at, puzzle_type, puzzle_data')
+      .order('id');
+
+    if (daysError) {
+      console.error('Ошибка загрузки дней:', daysError);
+      container.innerHTML = `<div class="loading">Ошибка загрузки 😢<br><small>${daysError.message || 'Проверь консоль (F12)'}</small></div>`;
+      return;
+    }
+
+    if (!daysData || daysData.length === 0) {
+      console.warn('Данные пусты. Возможно, таблица days пуста или RLS блокирует доступ.');
+      container.innerHTML = '<div class="loading">Нет данных 😢<br><small>Добавь дни в БД или проверь RLS политики</small></div>';
+      return;
+    }
+
+    // Загружаем решённые дни из таблицы solves
+    const { data: solvesData, error: solvesError } = await client
+      .from('solves')
+      .select('day_id, solved_at, reward_opened_at');
+
+    // Создаём мапы: day_id -> solved_at / reward_opened_at
+    const solvesMap = {};
+    const openedMap = {};
+    if (solvesData && !solvesError) {
+      solvesData.forEach(solve => {
+        solvesMap[solve.day_id] = solve.solved_at;
+        openedMap[solve.day_id] = solve.reward_opened_at || null;
+      });
+    }
+
+    // Объединяем данные
+    const processedData = daysData.map(day => ({
+      ...day,
+      solved_at: solvesMap[day.id] || null,
+      reward_opened_at: openedMap[day.id] || null
+    }));
+
+    console.log('Ответ от Supabase:', { 
+      daysCount: daysData.length, 
+      solvesCount: solvesData?.length || 0,
+      processedData 
+    });
+
+    if (!processedData || processedData.length === 0) {
+      console.warn('Данные пусты. Возможно, таблица days пуста или RLS блокирует доступ.');
+      container.innerHTML = '<div class="loading">Нет данных 😢<br><small>Добавь дни в БД или проверь RLS политики</small></div>';
+      return;
+    }
+
+    console.log(`Загружено дней: ${processedData.length}`);
+    renderDays(processedData);
+    updateProgress(processedData);
+    
+    // Показываем таймер
+    const timerEl = document.getElementById('timer');
+    if (timerEl) {
+      timerEl.style.display = 'block';
+    }
+    
+    return Promise.resolve(); // Возвращаем Promise для цепочки
+  } catch (err) {
+    console.error('Неожиданная ошибка:', err);
+    container.innerHTML = `<div class="loading">Ошибка загрузки 😢<br><small>${err.message || 'Проверь консоль (F12)'}</small></div>`;
+    return Promise.reject(err);
+  }
+}
+
+// Рендер карточек дней
+function renderDays(days) {
+  const container = document.getElementById('days');
+  container.innerHTML = '';
+
+  days.forEach((day, index) => {
+    const div = document.createElement('div');
+    const isUnlocked = isDayUnlocked(day.unlock_at);
+    const isSolved = !!day.solved_at;
+    const isRewardOpened = !!day.reward_opened_at;
+
+    let className = 'day';
+    if (!isUnlocked) className += ' day-locked';
+    if (isSolved) className += ' day-solved';
+    if (isSolved && !isRewardOpened) className += ' day-awaiting-claim';
+    if (isSolved && isRewardOpened) className += ' day-opened';
+
+    div.className = className;
+    div.dataset.dayId = day.id;
+    div.dataset.dayIndex = index;
+
+    const weekday = getWeekday(day.unlock_at);
+    const dayNumber = getDayNumber(day.unlock_at);
+    
+    // Обёртка для контента (для блюра)
+    let content = '<div class="day-content">';
+    content += `<div class="day-weekday">${weekday}</div>`;
+    content += `<div class="day-number">${dayNumber}</div>`;
+
+    if (!isUnlocked) {
+      content += `
+        <div class="day-status day-status-locked">Откроется ${formatDate(day.unlock_at)}</div>
+      `;
+    } else if (isSolved) {
+      // 2 состояния для решённого дня:
+      // - Решено, но награду ни разу не открывали (ждёт забора)
+      // - Решено, награду уже открывали (можно пересмотреть)
+      if (isRewardOpened) {
+        content += `
+          <div class="day-status day-status-opened">Посмотреть что внутри</div>
+        `;
+      } else {
+        content += `
+          <div class="day-status day-status-solved">Забирай подарок!</div>
+        `;
+      }
+    } else {
+      // Показываем вопрос с картинкой, если есть
+      const puzzleData = day.puzzle_data || {};
+      let questionHtml = '';
+      
+      if (puzzleData.image) {
+        questionHtml += `<img src="${puzzleData.image}" alt="Загадка" class="day-question-image" />`;
+      }
+      
+      if (puzzleData.question) {
+        questionHtml += `<div class="day-question-text">${puzzleData.question}</div>`;
+      } else {
+        questionHtml += `<div class="day-question-text">Загадка</div>`;
+      }
+      
+      content += `
+        <div class="day-question">${questionHtml}</div>
+        <div class="day-status">Готово к решению</div>
+      `;
+    }
+
+    content += '</div>'; // закрываем day-content
+
+    div.innerHTML = content;
+
+    if (isUnlocked) {
+      div.addEventListener('click', () => handleDayClick(day));
+    }
+
+    container.appendChild(div);
+    
+    // Если это карточка, которая ждёт забора награды, принудительно применяем стили
+    if (isSolved && !isRewardOpened) {
+      console.log('renderDays: карточка дня', day.id, 'ждёт забора, применяю стили принудительно');
+      // Даём браузеру время на рендер, потом применяем стили
+      setTimeout(() => {
+        // Принудительно пересчитываем стили
+        div.offsetHeight; // force reflow
+        
+        div.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
+        div.style.transform = 'scale(1.05)';
+        div.style.zIndex = '10';
+        div.style.opacity = '1';
+        div.style.transition = 'none';
+        div.style.boxShadow = '0 0 38px rgba(74, 222, 128, 0.75), 0 0 80px rgba(74, 222, 128, 0.55), 0 0 120px rgba(74, 222, 128, 0.35)';
+        div.style.borderColor = 'var(--success)';
+        
+        // Проверяем, что стили применились
+        const computed = window.getComputedStyle(div);
+        console.log('renderDays: стили применены для дня', day.id);
+        console.log('  - классы:', div.className);
+        console.log('  - animation:', computed.animation);
+        console.log('  - transform:', computed.transform);
+        console.log('  - z-index:', computed.zIndex);
+        
+        // Если анимация не работает, пробуем ещё раз
+        if (!computed.animation || computed.animation === 'none') {
+          console.warn('renderDays: анимация не применилась, пробую ещё раз...');
+          setTimeout(() => {
+            div.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
+            console.log('renderDays: повторная попытка применения анимации');
+          }, 100);
+        }
+      }, 50);
+    }
+  });
+  
+  // Добавляем обработчик прокрутки для определения центральной карточки
+  updateCenterCard();
+  container.addEventListener('scroll', updateCenterCard);
+}
+
+// Клик по карточке: решаем/забираем/смотрим награду
+function handleDayClick(day) {
+  if (!isDayUnlocked(day.unlock_at)) return;
+  const isSolved = !!day.solved_at;
+  const isRewardOpened = !!day.reward_opened_at;
+
+  // Решено, но награду ещё не открывали: сначала анимация на карточке, потом модалка с наградой
+  if (isSolved && !isRewardOpened) {
+    startClaimRewardFlow(day);
+    return;
+  }
+
+  // Иначе — обычная модалка (головоломка или просмотр награды)
+  openDayModal(day);
+}
+
+function startClaimRewardFlow(day) {
+  const dayId = day.id;
+  const el = document.querySelector(`.day[data-day-id="${dayId}"]`);
+  if (!el) {
+    console.warn('startClaimRewardFlow: элемент не найден, открываю модалку напрямую');
+    openRewardModal(day);
+    return;
+  }
+  if (el.dataset.claiming === '1') {
+    console.log('startClaimRewardFlow: анимация уже запущена');
+    return;
+  }
+  
+  console.log('startClaimRewardFlow: запускаю анимацию для дня', dayId);
+  el.dataset.claiming = '1';
+
+  // Убираем day-awaiting-claim и добавляем day-claiming
+  el.classList.remove('day-awaiting-claim');
+  el.classList.remove('day-center'); // Временно убираем для анимации
+  el.classList.add('day-claiming');
+
+  // Приводим в фокус
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+  // После анимации — показываем модалку с наградой (и только тогда вызываем get_reward)
+  const CLAIM_ANIMATION_MS = 1400;
+  setTimeout(() => {
+    console.log('startClaimRewardFlow: анимация завершена, открываю модалку');
+    el.classList.remove('day-claiming');
+    delete el.dataset.claiming;
+    openRewardModal(day);
+  }, CLAIM_ANIMATION_MS);
+}
+
+function openRewardModal(day) {
+  // Важно: для решённых дней openDayModal сразу рисует reward UI и вызывает loadReward()
+  openDayModal(day);
+}
+
+// Определение и подсветка центральной карточки
+function updateCenterCard() {
+  const container = document.getElementById('days');
+  if (!container) return;
+  
+  const cards = container.querySelectorAll('.day');
+  const containerRect = container.getBoundingClientRect();
+  const containerCenter = containerRect.left + containerRect.width / 2;
+  
+  cards.forEach(card => {
+    const cardRect = card.getBoundingClientRect();
+    const cardCenter = cardRect.left + cardRect.width / 2;
+    const distance = Math.abs(cardCenter - containerCenter);
+    
+    // Если карточка в центре (в пределах 100px от центра), делаем её активной
+    // НО не добавляем day-center, если карточка ждёт забора награды (чтобы не конфликтовать с анимацией)
+    if (distance < 100 && !card.classList.contains('day-awaiting-claim') && !card.classList.contains('day-claiming')) {
+      card.classList.add('day-center');
+    } else {
+      // Убираем day-center только если это не карточка, которая ждёт забора
+      if (!card.classList.contains('day-awaiting-claim') && !card.classList.contains('day-claiming')) {
+        card.classList.remove('day-center');
+      }
+    }
+  });
+}
+
+// Обновление прогресса
+function updateProgress(days) {
+  const progressEl = document.getElementById('progress');
+  if (!progressEl) return;
+
+  const solved = days.filter(d => d.solved_at).length;
+  const total = days.length;
+  progressEl.textContent = `Открыто ${solved} из ${total}`;
+  
+  // Обновляем таймер
+  updateTimer(days);
+}
+
+// Обновление таймера до следующего дня
+function updateTimer(days) {
+  const timerEl = document.getElementById('timer');
+  if (!timerEl) return;
+
+  // Находим следующий неоткрытый день
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const nextDay = days
+    .filter(day => {
+      const unlockDate = new Date(day.unlock_at);
+      unlockDate.setHours(0, 0, 0, 0);
+      return unlockDate > today && !day.solved_at;
+    })
+    .sort((a, b) => new Date(a.unlock_at) - new Date(b.unlock_at))[0];
+
+  if (!nextDay) {
+    // Все дни открыты или решены
+    timerEl.innerHTML = `
+      <div class="timer-label">🎉</div>
+      <div class="timer-display expired">Все дни открыты!</div>
+    `;
+    return;
+  }
+
+  const unlockDate = new Date(nextDay.unlock_at);
+  unlockDate.setHours(0, 0, 0, 0);
+  
+  // Запускаем таймер
+  function updateTimerDisplay() {
+    const now = new Date();
+    const diff = unlockDate - now;
+
+    if (diff <= 0) {
+      timerEl.innerHTML = `
+        <div class="timer-label">День ${nextDay.id} открыт!</div>
+        <div class="timer-display expired">Можно решать!</div>
+      `;
+      // Обновляем дни, чтобы показать новый открытый день
+      setTimeout(() => loadDays(), 1000);
+      return;
+    }
+
+    const daysLeft = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hoursLeft = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutesLeft = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const secondsLeft = Math.floor((diff % (1000 * 60)) / 1000);
+
+    let display = '';
+    if (daysLeft > 0) {
+      display = `${daysLeft}д ${hoursLeft}ч ${minutesLeft}м`;
+    } else if (hoursLeft > 0) {
+      display = `${hoursLeft}ч ${minutesLeft}м ${secondsLeft}с`;
+    } else {
+      display = `${minutesLeft}м ${secondsLeft}с`;
+    }
+
+    timerEl.innerHTML = `
+      <div class="timer-label">До следующего подарка</div>
+      <div class="timer-display">${display}</div>
+    `;
+  }
+
+  // Обновляем сразу
+  updateTimerDisplay();
+  
+  // Обновляем каждую секунду
+  if (timerEl.timerInterval) {
+    clearInterval(timerEl.timerInterval);
+  }
+  timerEl.timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+// Открытие модала дня
+function openDayModal(day) {
+  const modal = document.getElementById('modal');
+  const modalContent = document.getElementById('modal-content');
+  
+  if (!modal || !modalContent) return;
+
+  const isUnlocked = isDayUnlocked(day.unlock_at);
+  const isSolved = !!day.solved_at;
+
+  let html = `
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div class="modal-header">
+      <div class="modal-title">День ${day.id}</div>
+      <div class="modal-subtitle">${formatDate(day.unlock_at)}</div>
+    </div>
+    <div class="modal-body">
+  `;
+
+  if (!isUnlocked) {
+    html += `
+      <div class="question">🔒 Этот день ещё не открыт. Вернись ${formatDate(day.unlock_at)}!</div>
+    `;
+  } else if (isSolved) {
+    // Если решено, показываем награду (она должна быть уже загружена)
+    html += `
+      <div class="question">Молодец, жопич!</div>
+      <div class="reward" id="reward-content">
+        <div class="loading">Грузиммммммммм…</div>
+      </div>
+    `;
+  } else {
+    // Определяем тип головоломки
+    const puzzleType = day.puzzle_type || 'text';
+    const puzzleData = day.puzzle_data || {};
+    
+    // Показываем вопрос/картинку
+    let questionHtml = '';
+    if (puzzleData.image) {
+      // Всегда показываем placeholder для относительных путей, signed URL загрузится позже
+      const originalPath = puzzleData.image;
+      let imageUrl = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'200\'%3E%3Crect fill=\'%23333\' width=\'400\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'16\'%3EЗагрузка...%3C/text%3E%3C/svg%3E';
+      
+      // Только если это уже полный URL (http/https), используем его напрямую
+      if (originalPath.startsWith('http://') || originalPath.startsWith('https://')) {
+        imageUrl = originalPath;
+      }
+      
+      questionHtml += `<img src="${imageUrl}" alt="Загадка" class="puzzle-image" data-day-id="${day.id}" data-original-path="${escapeHtml(originalPath)}" />`;
+    }
+    if (puzzleData.question) {
+      questionHtml += `<div class="question-text">${puzzleData.question}</div>`;
+    }
+    
+    html += `<div class="question">${questionHtml || 'Загадка'}</div>`;
+    
+    // Разные типы головоломок
+    if (puzzleType === 'match_images') {
+      // Головоломка с сопоставлением картинок и цифр
+      // Загружаем signed URLs для изображений
+      html += renderMatchImagesPuzzle(day.id, puzzleData);
+    } else {
+      // Обычный текстовый ввод
+      html += `
+        <input 
+          type="text" 
+          class="answer-input" 
+          id="answer-input" 
+          placeholder="Введи ответ..."
+          autocomplete="off"
+        />
+        <button class="btn btn-primary" id="check-btn" onclick="checkAnswer(${day.id})">
+          Проверить
+        </button>
+        <div id="feedback"></div>
+        <div class="attempts-info" id="attempts-info"></div>
+      `;
+    }
+  }
+
+  html += '</div>';
+  modalContent.innerHTML = html;
+  modal.classList.add('active');
+
+  // Если день решён, загружаем награду после того, как элемент создан в DOM
+  if (isSolved) {
+    // DOM уже создан после innerHTML, но дадим браузеру кадр на отрисовку
+    requestAnimationFrame(() => loadReward(day.id));
+  }
+
+  // Инициализация для разных типов головоломок
+  if (day.puzzle_type === 'match_images') {
+    // Загружаем signed URLs для изображений и картинки вопроса перед инициализацией
+    Promise.all([
+      loadPuzzleQuestionImage(day.id, day.puzzle_data),
+      loadPuzzleImages(day.id)
+    ]).then(() => {
+      initMatchImagesPuzzle(day.id);
+    });
+  } else {
+    // Загружаем signed URL для картинки вопроса (если есть)
+    if (day.puzzle_data?.image) {
+      loadPuzzleQuestionImage(day.id, day.puzzle_data);
+    }
+    
+    const input = document.getElementById('answer-input');
+    if (input) {
+      input.focus();
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          checkAnswer(day.id);
+        }
+      });
+    }
+  }
+}
+
+// Закрытие модала
+function closeModal() {
+  const modal = document.getElementById('modal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+// Рендер головоломки с сопоставлением картинок и цифр
+function renderMatchImagesPuzzle(dayId, puzzleData) {
+  const images = puzzleData.images || [];
+  const numbers = puzzleData.numbers || [1, 2, 3, 4];
+  
+  let html = `
+    <div class="match-puzzle" data-day-id="${dayId}">
+      <div class="match-instruction">Сопоставь картинки с цифрами:</div>
+      <div class="match-container">
+        <div class="match-numbers">
+          ${numbers.map(num => `
+            <div class="match-number-slot" data-number="${num}">
+              <div class="match-number-label">${num}</div>
+              <div class="match-image-drop" data-number="${num}" id="drop-${dayId}-${num}">
+                <div class="drop-placeholder">Перетащи сюда</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="match-images">
+          ${images.map((img, idx) => {
+            // Поддержка разных форматов URL
+            let imageUrl = '';
+            if (typeof img === 'string') {
+              imageUrl = img;
+            } else if (img.url) {
+              imageUrl = img.url;
+            } else if (img.path) {
+              imageUrl = img.path;
+            }
+            
+            // Временно используем placeholder - signed URLs будут загружены через Edge Function
+            // Если это уже полный URL, используем его
+            let finalUrl = imageUrl;
+            if (!imageUrl || (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://') && !imageUrl.startsWith('data:'))) {
+              // Это относительный путь - будет заменен на signed URL после загрузки
+              finalUrl = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3Crect fill=\'%23333\' width=\'100\' height=\'100\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\' font-size=\'14\'%3EЗагрузка...%3C/text%3E%3C/svg%3E';
+            }
+            
+            return `
+            <div class="match-image-item" draggable="true" data-image-id="${idx}" data-day-id="${dayId}">
+              <img src="${finalUrl}" alt="Изображение ${idx + 1}" 
+                   data-original-path="${imageUrl}"
+                   onerror="console.error('Ошибка загрузки изображения ${idx + 1}:', '${imageUrl}'); this.style.display='none'; this.parentElement.innerHTML='<div style=\\'padding:20px;text-align:center;color:rgba(255,255,255,0.5)\\'>Изображение ${idx + 1}<br><small>Не загружено</small></div>';" />
+            </div>
+          `;
+          }).join('')}
+        </div>
+      </div>
+      <button class="btn btn-primary" id="check-btn" onclick="checkMatchAnswer(${dayId})">
+        Проверить
+      </button>
+      <div id="feedback"></div>
+      <div class="attempts-info" id="attempts-info"></div>
+    </div>
+  `;
+  
+  return html;
+}
+
+// Сброс состояния головоломки с сопоставлением
+function resetMatchPuzzle(dayId) {
+  const puzzle = document.querySelector(`.match-puzzle[data-day-id="${dayId}"]`);
+  if (!puzzle) return;
+  
+  const imageItems = puzzle.querySelectorAll('.match-image-item');
+  const dropZones = puzzle.querySelectorAll('.match-image-drop');
+  
+  // Возвращаем все картинки обратно
+  imageItems.forEach(item => {
+    item.style.opacity = '1';
+    item.style.pointerEvents = 'auto';
+    item.classList.remove('dragging');
+  });
+  
+  // Очищаем все зоны
+  dropZones.forEach(zone => {
+    zone.innerHTML = '<div class="drop-placeholder">Перетащи сюда</div>';
+    delete zone.dataset.imageId;
+    zone.classList.remove('drag-over');
+  });
+}
+
+// Инициализация головоломки с сопоставлением
+function initMatchImagesPuzzle(dayId) {
+  const puzzle = document.querySelector(`.match-puzzle[data-day-id="${dayId}"]`);
+  if (!puzzle) return;
+  
+  const imageItems = puzzle.querySelectorAll('.match-image-item');
+  const dropZones = puzzle.querySelectorAll('.match-image-drop');
+  
+  let draggedElement = null;
+  let rafId = null;
+  let lastTouchMove = null;
+  
+  // Drag & Drop для десктопа
+  imageItems.forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', item.dataset.imageId);
+      item.classList.add('dragging');
+    });
+    
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+    });
+  });
+  
+  dropZones.forEach(zone => {
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      zone.classList.add('drag-over');
+    });
+    
+    zone.addEventListener('dragleave', () => {
+      zone.classList.remove('drag-over');
+    });
+    
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      
+      const imageId = e.dataTransfer.getData('text/plain');
+      const imageItem = puzzle.querySelector(`.match-image-item[data-image-id="${imageId}"]`);
+      
+      if (imageItem && zone.dataset.number) {
+        // Если в зоне уже есть картинка, убираем её
+        if (zone.dataset.imageId) {
+          const prevImageId = zone.dataset.imageId;
+          const prevItem = puzzle.querySelector(`.match-image-item[data-image-id="${prevImageId}"]`);
+          if (prevItem) {
+            prevItem.style.opacity = '1';
+            prevItem.style.pointerEvents = 'auto';
+          }
+        }
+        
+        // Убираем из предыдущего места, если было
+        const previousDrop = puzzle.querySelector(`.match-image-drop[data-image-id="${imageId}"]`);
+        if (previousDrop && previousDrop !== zone) {
+          previousDrop.innerHTML = '<div class="drop-placeholder">Перетащи сюда</div>';
+          delete previousDrop.dataset.imageId;
+        }
+        
+        // Добавляем в новое место
+        zone.innerHTML = '';
+        const img = imageItem.querySelector('img').cloneNode(true);
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '8px';
+        img.style.cursor = 'pointer';
+        img.title = 'Кликни, чтобы убрать';
+        zone.appendChild(img);
+        zone.dataset.imageId = imageId;
+        
+        // Скрываем оригинальную картинку
+        imageItem.style.opacity = '0.3';
+        imageItem.style.pointerEvents = 'none';
+      }
+    });
+    
+  });
+  
+  // Touch для мобильных - полноценный drag & drop
+  imageItems.forEach(item => {
+    item.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      draggedElement = item;
+      const touch = e.touches[0];
+      item.classList.add('dragging');
+      item.style.opacity = '0.5';
+      
+      // Создаем визуальный элемент для перетаскивания
+      const dragImage = item.cloneNode(true);
+      dragImage.style.position = 'fixed';
+      dragImage.style.top = `${touch.clientY - 60}px`;
+      dragImage.style.left = `${touch.clientX - 60}px`;
+      dragImage.style.width = '120px';
+      dragImage.style.height = '120px';
+      dragImage.style.zIndex = '10000';
+      dragImage.style.pointerEvents = 'none';
+      dragImage.style.opacity = '0.8';
+      dragImage.id = 'drag-ghost';
+      document.body.appendChild(dragImage);
+    }, { passive: false });
+    
+    item.addEventListener('touchmove', (e) => {
+      if (!draggedElement) return;
+      e.preventDefault();
+      lastTouchMove = e.touches[0];
+      // Throttle: не делаем тяжёлые операции на каждый touchmove, только раз в кадр
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const touch = lastTouchMove;
+        if (!touch) return;
+        
+        // Обновляем позицию визуального элемента
+        const dragGhost = document.getElementById('drag-ghost');
+        if (dragGhost) {
+          dragGhost.style.top = `${touch.clientY - 60}px`;
+          dragGhost.style.left = `${touch.clientX - 60}px`;
+        }
+        
+        // Определяем, над какой зоной находимся
+        const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+        const dropZone = elementBelow?.closest('.match-image-drop');
+        
+        // Убираем подсветку со всех зон
+        dropZones.forEach(z => z.classList.remove('drag-over'));
+        
+        // Подсвечиваем текущую зону
+        if (dropZone && !dropZone.dataset.imageId) {
+          dropZone.classList.add('drag-over');
+        }
+      });
+    }, { passive: false });
+    
+    item.addEventListener('touchend', (e) => {
+      if (!draggedElement) return;
+      e.preventDefault();
+      
+      // Сбрасываем возможный rAF
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      
+      const touch = e.changedTouches[0];
+      const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+      const dropZone = elementBelow?.closest('.match-image-drop');
+      
+      // Убираем визуальный элемент
+      const dragGhost = document.getElementById('drag-ghost');
+      if (dragGhost) {
+        dragGhost.remove();
+      }
+      
+      draggedElement.classList.remove('dragging');
+      draggedElement.style.opacity = '1';
+      
+      // Убираем подсветку со всех зон
+      dropZones.forEach(z => z.classList.remove('drag-over'));
+      
+      if (dropZone) {
+        const imageId = draggedElement.dataset.imageId;
+        
+        // Если в зоне уже есть картинка, убираем её
+        if (dropZone.dataset.imageId) {
+          const prevImageId = dropZone.dataset.imageId;
+          const prevItem = puzzle.querySelector(`.match-image-item[data-image-id="${prevImageId}"]`);
+          if (prevItem) {
+            prevItem.style.opacity = '1';
+            prevItem.style.pointerEvents = 'auto';
+          }
+        }
+        
+        // Убираем из предыдущего места, если было
+        const previousDrop = puzzle.querySelector(`.match-image-drop[data-image-id="${imageId}"]`);
+        if (previousDrop && previousDrop !== dropZone) {
+          previousDrop.innerHTML = '<div class="drop-placeholder">Перетащи сюда</div>';
+          delete previousDrop.dataset.imageId;
+          const prevItem = puzzle.querySelector(`.match-image-item[data-image-id="${imageId}"]`);
+          if (prevItem) {
+            prevItem.style.opacity = '1';
+            prevItem.style.pointerEvents = 'auto';
+          }
+        }
+        
+        // Добавляем в новое место
+        dropZone.innerHTML = '';
+        const img = draggedElement.querySelector('img').cloneNode(true);
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '8px';
+        dropZone.appendChild(img);
+        dropZone.dataset.imageId = imageId;
+        
+        // Скрываем оригинальную картинку
+        draggedElement.style.opacity = '0.3';
+        draggedElement.style.pointerEvents = 'none';
+      }
+      
+      draggedElement = null;
+    }, { passive: false });
+  });
+  
+  // Обработчик клика на изображение в зоне для мобильных и десктопа
+  dropZones.forEach(zone => {
+    zone.addEventListener('click', (e) => {
+      // Проверяем, что клик был именно по изображению, а не по placeholder
+      if (zone.dataset.imageId && (e.target.tagName === 'IMG' || e.target.closest('img'))) {
+        const imageId = zone.dataset.imageId;
+        const imageItem = puzzle.querySelector(`.match-image-item[data-image-id="${imageId}"]`);
+        
+        if (imageItem) {
+          // Возвращаем картинку обратно
+          imageItem.style.opacity = '1';
+          imageItem.style.pointerEvents = 'auto';
+          
+          // Очищаем зону
+          zone.innerHTML = '<div class="drop-placeholder">Перетащи сюда</div>';
+          delete zone.dataset.imageId;
+        }
+      }
+    });
+  });
+}
+
+// Проверка ответа для головоломки с сопоставлением
+function checkMatchAnswer(dayId) {
+  const puzzle = document.querySelector(`.match-puzzle[data-day-id="${dayId}"]`);
+  if (!puzzle) return;
+  
+  const dropZones = puzzle.querySelectorAll('.match-image-drop');
+  const answer = [];
+  
+  dropZones.forEach(zone => {
+    const number = zone.dataset.number;
+    const imageId = zone.dataset.imageId;
+    if (imageId) {
+      answer.push({ number: parseInt(number), imageId: parseInt(imageId) });
+    }
+  });
+  
+  if (answer.length === 0) {
+    const feedback = document.getElementById('feedback');
+    showFeedback(feedback, 'Сопоставь все картинки с цифрами', 'error');
+    return;
+  }
+  
+  // Отправляем ответ в формате JSON строки
+  checkAnswer(dayId, JSON.stringify(answer));
+}
+
+// Проверка ответа через Edge Function
+async function checkAnswer(dayId, customAnswer = null) {
+  const input = document.getElementById('answer-input');
+  const btn = document.getElementById('check-btn');
+  const feedback = document.getElementById('feedback');
+  const attemptsInfo = document.getElementById('attempts-info');
+
+  if (!btn) return;
+
+  let answer;
+  if (customAnswer !== null) {
+    answer = customAnswer;
+  } else {
+    if (!input) return;
+    answer = input.value.trim();
+  }
+  
+  if (!answer) {
+    showFeedback(feedback, 'Введи ответ', 'error');
+    return;
+  }
+
+  // Блокируем UI
+  btn.disabled = true;
+  if (input) input.disabled = true;
+  if (feedback) feedback.innerHTML = '<div class="loading">Проверяю...</div>';
+
+  try {
+    const response = await fetch(`${getSupabaseFunctionsUrl()}/check_answer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getSupabaseAnonKey()}`
+      },
+      body: JSON.stringify({
+        day_id: dayId,
+        answer: answer
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Ошибка проверки');
+    }
+
+    if (result.ok) {
+      // Правильный ответ!
+      showFeedback(feedback, '🎉 Правильно!', 'success');
+      if (input) input.disabled = true;
+      btn.disabled = true;
+
+      console.log('Правильный ответ для дня', dayId, '- закрываю модалку и подсвечиваю карточку');
+      
+      // Сразу закрываем модалку и возвращаем на календарь
+      closeModal();
+      
+      // Небольшая задержка для плавного перехода
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Обновляем список дней и подсвечиваем "ждёт забора"
+      await loadDays();
+      
+      // Даём DOM время на обновление
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      highlightSolvedDay(dayId);
+    } else {
+      // Неправильный ответ
+      showFeedback(feedback, result.message || 'Неправильно, попробуй ещё', 'error');
+      
+      // Если это головоломка с сопоставлением, сбрасываем состояние
+      const puzzle = document.querySelector(`.match-puzzle[data-day-id="${dayId}"]`);
+      if (puzzle) {
+        resetMatchPuzzle(dayId);
+      }
+      
+      if (input) {
+        input.disabled = false;
+        input.focus();
+        input.select();
+      }
+      btn.disabled = false;
+
+      if (result.attempts_left !== undefined && attemptsInfo) {
+        attemptsInfo.textContent = `Осталось попыток: ${result.attempts_left}`;
+      }
+    }
+  } catch (error) {
+    console.error('Ошибка проверки:', error);
+    console.error('URL:', `${getSupabaseFunctionsUrl()}/check_answer`);
+    
+    let errorMessage = 'Ошибка соединения. Попробуй ещё раз.';
+    
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      errorMessage = 'Edge Function не задеплоена. Выполни: supabase functions deploy check_answer';
+    } else if (error.message.includes('404')) {
+      errorMessage = 'Edge Function не найдена. Проверь деплой.';
+    } else if (error.message.includes('CORS')) {
+      errorMessage = 'Ошибка CORS. Проверь настройки функции.';
+    }
+    
+    showFeedback(feedback, errorMessage, 'error');
+    const inputEl = document.getElementById('answer-input');
+    if (inputEl) inputEl.disabled = false;
+    btn.disabled = false;
+  }
+}
+
+// Показ фидбека
+function showFeedback(container, message, type) {
+  if (!container) return;
+  container.innerHTML = `<div class="feedback feedback-${type}">${message}</div>`;
+}
+
+// Загрузка signed URL для картинки вопроса
+async function loadPuzzleQuestionImage(dayId, puzzleData) {
+  if (!puzzleData || !puzzleData.image) {
+    console.log('loadPuzzleQuestionImage: нет puzzleData или image');
+    return;
+  }
+  
+  const questionImage = document.querySelector(`.puzzle-image[data-day-id="${dayId}"]`);
+  if (!questionImage) {
+    console.log('loadPuzzleQuestionImage: элемент не найден для dayId', dayId);
+    return;
+  }
+  
+  let imagePath = puzzleData.image;
+  console.log('loadPuzzleQuestionImage: загружаю картинку вопроса:', imagePath);
+  
+  // Если это уже полный URL, не обрабатываем
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    console.log('loadPuzzleQuestionImage: это уже полный URL, пропускаю');
+    return;
+  }
+  
+  try {
+    // Извлекаем путь к файлу
+    if (imagePath.startsWith('rewards/')) {
+      imagePath = imagePath.replace(/^rewards\//, '');
+    } else if (imagePath.startsWith('puzzles/')) {
+      imagePath = imagePath.replace(/^puzzles\//, '');
+    }
+    
+    console.log('loadPuzzleQuestionImage: отправляю запрос с путем:', imagePath);
+    
+    // Используем Edge Function для получения signed URL
+    const url = `${getSupabaseFunctionsUrl()}/get_puzzle_images`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getSupabaseAnonKey()}`
+      },
+      body: JSON.stringify({ 
+        day_id: dayId,
+        image_path: imagePath // Передаем путь к картинке вопроса
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Ошибка загрузки картинки вопроса (HTTP):', response.status, errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('Результат загрузки картинки вопроса:', result);
+    if (result.ok && result.questionImageUrl) {
+      questionImage.src = result.questionImageUrl;
+      console.log('Картинка вопроса обновлена:', result.questionImageUrl);
+    } else {
+      console.error('Не удалось получить signed URL для картинки вопроса:', result);
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки картинки вопроса:', error);
+  }
+}
+
+// Загрузка signed URLs для изображений головоломки
+async function loadPuzzleImages(dayId) {
+  const puzzle = document.querySelector(`.match-puzzle[data-day-id="${dayId}"]`);
+  if (!puzzle) {
+    console.warn('Головоломка не найдена для загрузки изображений');
+    return;
+  }
+
+  const imageItems = puzzle.querySelectorAll('.match-image-item img');
+  if (imageItems.length === 0) return;
+
+  try {
+    const url = `${getSupabaseFunctionsUrl()}/get_puzzle_images`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getSupabaseAnonKey()}`
+      },
+      body: JSON.stringify({ day_id: dayId })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Ошибка загрузки изображений головоломки:', errorText);
+      return;
+    }
+
+    const result = await response.json();
+    if (result.ok && result.images) {
+      // Обновляем src всех изображений
+      imageItems.forEach((img, idx) => {
+        if (result.images[idx] && result.images[idx].signedUrl) {
+          img.src = result.images[idx].signedUrl;
+        } else if (result.images[idx] && result.images[idx].error) {
+          console.error(`Ошибка загрузки изображения ${idx + 1}:`, result.images[idx].error);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки изображений головоломки:', error);
+  }
+}
+
+// Загрузка награды (для уже решённых дней)
+async function loadReward(dayId) {
+  const rewardContent = document.getElementById('reward-content');
+  if (!rewardContent) {
+    console.error('Элемент reward-content не найден');
+    return;
+  }
+
+  console.log('Загружаю награду для дня:', dayId);
+
+  try {
+    const url = `${getSupabaseFunctionsUrl()}/get_reward`;
+    console.log('Вызываю Edge Function:', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getSupabaseAnonKey()}`
+      },
+      body: JSON.stringify({ day_id: dayId })
+    });
+
+    console.log('Ответ от get_reward:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Ошибка ответа:', errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('Результат get_reward:', result);
+
+    if (result.ok && result.reward) {
+      const isFirstOpen = !!result.first_open;
+
+      // Анимация “дверцы” теперь делается ДО модалки (на карточке) в startClaimRewardFlow().
+      // Тут только показываем награду и синхронизируем состояние карточек.
+      showReward(result.reward, { firstOpen: isFirstOpen });
+      loadDays().catch(() => {});
+    } else {
+      console.error('Награда не найдена:', result);
+      rewardContent.innerHTML = `<div class="loading">Ошибка: ${result.message || 'Награда не найдена'}</div>`;
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки награды:', error);
+    let errorMessage = 'Ошибка загрузки награды';
+    
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      errorMessage = 'Edge Function get_reward не задеплоена. Выполни: supabase functions deploy get_reward';
+    } else if (error.message.includes('404')) {
+      errorMessage = 'Edge Function не найдена. Проверь деплой.';
+    }
+    
+    rewardContent.innerHTML = `<div class="loading">${errorMessage}</div>`;
+  }
+}
+
+// Показ награды
+function showReward(reward, opts = {}) {
+  const rewardContent = document.getElementById('reward-content');
+  if (!rewardContent) return;
+  const firstOpen = !!opts.firstOpen;
+
+  let html = `
+    <div class="reward-content reward-reveal ${firstOpen ? 'reward-first-open' : ''}">
+  `;
+
+  if (reward.type === 'text') {
+    html += `<p>${reward.data.text || ''}</p>`;
+  } else if (reward.type === 'image') {
+    html += `<img src="${reward.data.url}" alt="Награда" class="reward-image" />`;
+    if (reward.data.caption) {
+      html += `<p>${reward.data.caption}</p>`;
+    }
+  } else if (reward.type === 'link') {
+    html += `<p>${reward.data.text || ''}</p>`;
+    html += `<a href="${reward.data.url}" target="_blank" class="reward-link">${reward.data.label || 'Открыть'}</a>`;
+  } else if (reward.type === 'video') {
+    html += `<video controls class="reward-image"><source src="${reward.data.url}" type="video/mp4"></video>`;
+    if (reward.data.caption) {
+      html += `<p>${reward.data.caption}</p>`;
+    }
+  } else {
+    html += `<p>${JSON.stringify(reward.data)}</p>`;
+  }
+
+  html += `
+    </div>
+    <button class="btn btn-secondary" onclick="closeModal(); loadDays();" style="margin-top: 16px; width: 100%;">
+      Вернуться к календарю
+    </button>
+  `;
+  rewardContent.innerHTML = html;
+}
+
+// Подсветка решенного дня
+function highlightSolvedDay(dayId) {
+  const dayElement = document.querySelector(`.day[data-day-id="${dayId}"]`);
+  if (!dayElement) {
+    // Если элемент еще не загружен, ждем немного
+    setTimeout(() => highlightSolvedDay(dayId), 100);
+    return;
+  }
+  
+  console.log('highlightSolvedDay: добавляю класс day-awaiting-claim для дня', dayId);
+  
+  // Убираем day-center, чтобы не конфликтовал с анимацией
+  dayElement.classList.remove('day-center');
+  dayElement.classList.add('day-awaiting-claim');
+  
+  // Принудительно применяем стили через inline styles для гарантии
+  requestAnimationFrame(() => {
+    dayElement.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
+    dayElement.style.transform = 'scale(1.05)';
+    dayElement.style.zIndex = '10';
+    dayElement.style.opacity = '1';
+    dayElement.style.transition = 'none';
+    dayElement.style.boxShadow = '0 0 38px rgba(74, 222, 128, 0.75), 0 0 80px rgba(74, 222, 128, 0.55), 0 0 120px rgba(74, 222, 128, 0.35)';
+    dayElement.style.borderColor = 'var(--success)';
+    
+    console.log('highlightSolvedDay: inline стили применены. Проверяю computed styles...');
+    const computed = window.getComputedStyle(dayElement);
+    console.log('highlightSolvedDay: animation =', computed.animation);
+    console.log('highlightSolvedDay: transform =', computed.transform);
+    console.log('highlightSolvedDay: z-index =', computed.zIndex);
+    console.log('highlightSolvedDay: opacity =', computed.opacity);
+  });
+  
+  // Прокручиваем к элементу
+  dayElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  
+  // НЕ убираем класс автоматически - он будет убран при открытии модалки
+}
+
+// Закрытие модала по клику вне его
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('modal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeModal();
+      }
+    });
+  }
+});
+
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM загружен, инициализирую приложение...');
+  
+  // Проверяем, что все зависимости загружены
+  if (typeof window.supabase === 'undefined') {
+    console.error('Supabase SDK не загружен! Проверь подключение скрипта.');
+    document.getElementById('days').innerHTML = '<div class="loading">Ошибка: Supabase SDK не загружен 😢<br><small>Проверь подключение интернета</small></div>';
+    return;
+  }
+
+  if (typeof window.supabaseClient === 'undefined') {
+    console.error('supabaseClient не создан! Проверь supabase.js');
+    document.getElementById('days').innerHTML = '<div class="loading">Ошибка: клиент не создан 😢<br><small>Проверь supabase.js</small></div>';
+    return;
+  }
+
+  console.log('Все зависимости загружены, загружаю дни...');
+  loadDays();
+});
+
+// Экспорт функций для глобального доступа
+window.closeModal = closeModal;
+window.checkAnswer = checkAnswer;
+
