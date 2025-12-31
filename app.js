@@ -1288,10 +1288,44 @@ async function checkAnswer(dayId, customAnswer = null) {
       })
     });
 
-    const result = await response.json();
+    // Parse response safely (Supabase may return non-2xx with a JSON { message })
+    let result = null;
+    let rawText = '';
+    try {
+      rawText = await response.text();
+      result = rawText ? JSON.parse(rawText) : null;
+    } catch (e) {
+      // keep rawText for diagnostics
+    }
 
     if (!response.ok) {
-      throw new Error(result.error || 'Ошибка проверки');
+      const serverMsg =
+        (result && (result.error || result.message)) ||
+        (rawText && rawText.slice(0, 300)) ||
+        `HTTP ${response.status}`;
+      console.error('check_answer failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        result,
+        rawText
+      });
+      showFeedback(feedback, `Ошибка: ${serverMsg}`, 'error');
+      if (input) input.disabled = false;
+      btn.disabled = false;
+      return;
+    }
+
+    // If server returned 2xx but ok:false, still show message
+    if (!result || result.ok === false) {
+      const msg = (result && result.message) ? result.message : 'Неправильно, попробуй ещё';
+      showFeedback(feedback, msg, 'error');
+      if (input) {
+        input.disabled = false;
+        input.focus();
+        input.select();
+      }
+      btn.disabled = false;
+      return;
     }
 
     if (result.ok) {

@@ -29,3 +29,4 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_days_day_number ON public.days(day_number);
 
 
+

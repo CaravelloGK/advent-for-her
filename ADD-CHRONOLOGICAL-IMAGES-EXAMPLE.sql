@@ -48,3 +48,4 @@ ON CONFLICT (id) DO UPDATE SET
   max_attempts = EXCLUDED.max_attempts;
 
 
+
