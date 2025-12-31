@@ -27,37 +27,56 @@ function normalizeAnswer(answer) {
     .replace(/\s+/g, ' ');
 }
 
-// Parse a DATE-only string (YYYY-MM-DD) as LOCAL midnight to avoid timezone shifts.
-function parseLocalDate(dateString) {
+// Moscow-time helpers (Europe/Moscow, UTC+3, no DST).
+function parseYmd(dateString) {
   if (!dateString) return null;
   if (typeof dateString === 'string') {
     const m = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) {
-      const y = Number(m[1]);
-      const mo = Number(m[2]) - 1;
-      const d = Number(m[3]);
-      return new Date(y, mo, d, 0, 0, 0, 0); // local midnight
+      return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
     }
   }
-  const dt = new Date(dateString);
-  return Number.isFinite(dt.getTime()) ? dt : null;
+  return null;
+}
+
+function getMoscowYmdNow() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
+}
+
+// Moscow midnight expressed as a Date in UTC (so countdown works for any client timezone).
+function moscowMidnightUtcDate(ymdString) {
+  const ymd = parseYmd(ymdString);
+  if (!ymd) return null;
+  // Moscow is UTC+3 => 00:00 MSK == 21:00 previous day UTC.
+  const ms = Date.UTC(ymd.y, ymd.m - 1, ymd.d, -3, 0, 0, 0);
+  return new Date(ms);
 }
 
 // Проверка, доступен ли день
 function isDayUnlocked(unlockAt) {
   if (!unlockAt) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const unlockDate = parseLocalDate(unlockAt);
-  if (!unlockDate) return false;
-  unlockDate.setHours(0, 0, 0, 0);
-  return unlockDate <= today;
+  const unlock = parseYmd(unlockAt);
+  if (!unlock) return false;
+  const todayMsk = getMoscowYmdNow();
+  // Compare as y/m/d in Moscow
+  if (unlock.y !== todayMsk.y) return unlock.y < todayMsk.y;
+  if (unlock.m !== todayMsk.m) return unlock.m < todayMsk.m;
+  return unlock.d <= todayMsk.d;
 }
 
 // Форматирование даты
 function formatDate(dateString) {
-  const date = parseLocalDate(dateString) || new Date(dateString);
+  // Always format in Moscow TZ so it matches unlock logic.
+  const date = moscowMidnightUtcDate(dateString) || new Date(dateString);
   return date.toLocaleDateString('ru-RU', {
+    timeZone: 'Europe/Moscow',
     day: 'numeric',
     month: 'long'
   });
@@ -65,15 +84,16 @@ function formatDate(dateString) {
 
 // Получение дня недели
 function getWeekday(dateString) {
-  const date = parseLocalDate(dateString) || new Date(dateString);
+  const date = moscowMidnightUtcDate(dateString) || new Date(dateString);
   return date.toLocaleDateString('ru-RU', {
+    timeZone: 'Europe/Moscow',
     weekday: 'short'
   });
 }
 
 // Получение числа дня
 function getDayNumber(dateString) {
-  const date = parseLocalDate(dateString) || new Date(dateString);
+  const date = moscowMidnightUtcDate(dateString) || new Date(dateString);
   return date.getDate();
 }
 
@@ -371,7 +391,7 @@ function renderDays(days) {
     let statusHtml = '';
 
     if (!isUnlockedByDate) {
-      const unlockDt = parseLocalDate(day.unlock_at);
+      const unlockDt = moscowMidnightUtcDate(day.unlock_at);
       const unlockTo = (unlockDt || new Date(day.unlock_at)).toISOString();
       statusHtml = `
         <div class="day-status day-status-locked">

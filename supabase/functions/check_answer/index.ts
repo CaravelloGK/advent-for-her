@@ -63,13 +63,24 @@ serve(async (req) => {
       )
     }
 
-    // 2. Проверяем, что день разблокирован
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const unlockDate = new Date(day.unlock_at)
-    unlockDate.setHours(0, 0, 0, 0)
+    // 2. Проверяем, что день разблокирован (по Москве)
+    const mskYmd = (() => {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Moscow",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date())
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]))
+      return `${map.year}-${map.month}-${map.day}`
+    })()
 
-    if (unlockDate > today) {
+    // unlock_at is DATE -> comes as 'YYYY-MM-DD'
+    const unlockYmd = typeof day.unlock_at === "string"
+      ? day.unlock_at
+      : new Date(day.unlock_at).toISOString().slice(0, 10)
+
+    if (unlockYmd > mskYmd) {
       return new Response(
         JSON.stringify({ ok: false, message: 'День ещё не открыт' }),
         { 
