@@ -114,11 +114,36 @@ async function loadDays() {
       });
     }
 
+    // Попытки/локи (attempts_left / locked_until) через Edge Function (service role)
+    const attemptStatesMap = {};
+    try {
+      const resp = await fetch(`${getSupabaseFunctionsUrl()}/get_day_states`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getSupabaseAnonKey()}`
+        },
+        body: JSON.stringify({ day_ids: daysData.map(d => d.id) })
+      });
+      const json = await resp.json();
+      if (resp.ok && json?.ok && Array.isArray(json.states)) {
+        json.states.forEach(s => {
+          attemptStatesMap[s.day_id] = s;
+        });
+      } else {
+        console.warn('get_day_states: bad response', json);
+      }
+    } catch (e) {
+      console.warn('get_day_states failed', e);
+    }
+
     // Объединяем данные
     const processedData = daysData.map(day => ({
       ...day,
       solved_at: solvesMap[day.id] || null,
-      reward_opened_at: openedMap[day.id] || null
+      reward_opened_at: openedMap[day.id] || null,
+      attempts_left: attemptStatesMap[day.id]?.attempts_left ?? null,
+      attempts_locked_until: attemptStatesMap[day.id]?.locked_until ?? null
     }));
 
     console.log('Ответ от Supabase:', { 
@@ -136,12 +161,7 @@ async function loadDays() {
     console.log(`Загружено дней: ${processedData.length}`);
     renderDays(processedData);
     updateProgress(processedData);
-    
-    // Показываем таймер
-    const timerEl = document.getElementById('timer');
-    if (timerEl) {
-      timerEl.style.display = 'block';
-    }
+    startPerCardTimers();
     
     return Promise.resolve(); // Возвращаем Promise для цепочки
   } catch (err) {
@@ -151,6 +171,37 @@ async function loadDays() {
   }
 }
 
+function isAttemptsLocked(day) {
+  if (!day?.attempts_locked_until) return false;
+  const until = new Date(day.attempts_locked_until).getTime();
+  return Number.isFinite(until) && until > Date.now();
+}
+
+function formatCountdownMs(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (d > 0) return `${d}д ${h}ч ${m}м`;
+  if (h > 0) return `${h}ч ${m}м ${s}с`;
+  return `${m}м ${s}с`;
+}
+
+function startPerCardTimers() {
+  if (window.__cardTimersInterval) clearInterval(window.__cardTimersInterval);
+  window.__cardTimersInterval = setInterval(() => {
+    document.querySelectorAll('[data-countdown-to]').forEach((el) => {
+      const to = el.getAttribute('data-countdown-to');
+      if (!to) return;
+      const ts = new Date(to).getTime();
+      if (!Number.isFinite(ts)) return;
+      const diff = ts - Date.now();
+      el.textContent = diff <= 0 ? '0м 0с' : formatCountdownMs(diff);
+    });
+  }, 1000);
+}
+
 // Рендер карточек дней
 function renderDays(days) {
   const container = document.getElementById('days');
@@ -158,12 +209,15 @@ function renderDays(days) {
 
   days.forEach((day, index) => {
     const div = document.createElement('div');
-    const isUnlocked = isDayUnlocked(day.unlock_at);
+    const isUnlockedByDate = isDayUnlocked(day.unlock_at);
     const isSolved = !!day.solved_at;
     const isRewardOpened = !!day.reward_opened_at;
+    const isLockedByAttempts = isAttemptsLocked(day);
+    const isUnlocked = isUnlockedByDate && !isLockedByAttempts;
 
     let className = 'day';
-    if (!isUnlocked) className += ' day-locked';
+    if (!isUnlockedByDate) className += ' day-locked';
+    if (isLockedByAttempts) className += ' day-attempts-locked';
     if (isSolved) className += ' day-solved';
     if (isSolved && !isRewardOpened) className += ' day-awaiting-claim';
     if (isSolved && isRewardOpened) className += ' day-opened';
@@ -171,6 +225,8 @@ function renderDays(days) {
     div.className = className;
     div.dataset.dayId = day.id;
     div.dataset.dayIndex = index;
+    if (day.unlock_at) div.dataset.unlockAt = day.unlock_at;
+    if (day.attempts_locked_until) div.dataset.attemptsLockedUntil = day.attempts_locked_until;
 
     const weekday = getWeekday(day.unlock_at);
     const dayNumber = getDayNumber(day.unlock_at);
@@ -179,21 +235,32 @@ function renderDays(days) {
     let content = '<div class="day-content">';
     content += `<div class="day-weekday">${weekday}</div>`;
     content += `<div class="day-number">${dayNumber}</div>`;
+    let statusHtml = '';
 
-    if (!isUnlocked) {
-      content += `
-        <div class="day-status day-status-locked">Откроется ${formatDate(day.unlock_at)}</div>
+    if (!isUnlockedByDate) {
+      const unlockTo = new Date(day.unlock_at).toISOString();
+      statusHtml = `
+        <div class="day-status day-status-locked">
+          Откроется через <span class="day-countdown" data-countdown-to="${unlockTo}">—</span>
+        </div>
+      `;
+    } else if (isLockedByAttempts) {
+      const retryTo = new Date(day.attempts_locked_until).toISOString();
+      statusHtml = `
+        <div class="day-status day-status-attempts-locked">
+          Неудачница! Попробуй через <span class="day-countdown" data-countdown-to="${retryTo}">—</span>
+        </div>
       `;
     } else if (isSolved) {
       // 2 состояния для решённого дня:
       // - Решено, но награду ни разу не открывали (ждёт забора)
       // - Решено, награду уже открывали (можно пересмотреть)
       if (isRewardOpened) {
-        content += `
+        statusHtml = `
           <div class="day-status day-status-opened">Посмотреть что внутри</div>
         `;
       } else {
-        content += `
+        statusHtml = `
           <div class="day-status day-status-solved">Забирай подарок!</div>
         `;
       }
@@ -214,64 +281,41 @@ function renderDays(days) {
       
       content += `
         <div class="day-question">${questionHtml}</div>
-        <div class="day-status">Готово к решению</div>
       `;
+      statusHtml = `<div class="day-status">Готово к решению</div>`;
     }
 
     content += '</div>'; // закрываем day-content
+    content += statusHtml; // статус/таймер поверх, не под blur
 
     div.innerHTML = content;
 
     if (isUnlocked) {
       div.addEventListener('click', () => handleDayClick(day));
+    } else if (isLockedByAttempts) {
+      div.addEventListener('click', () => openDayModal(day));
     }
 
     container.appendChild(div);
     
-    // Если это карточка, которая ждёт забора награды, принудительно применяем стили
-    if (isSolved && !isRewardOpened) {
-      console.log('renderDays: карточка дня', day.id, 'ждёт забора, применяю стили принудительно');
-      // Даём браузеру время на рендер, потом применяем стили
-      setTimeout(() => {
-        // Принудительно пересчитываем стили
-        div.offsetHeight; // force reflow
-        
-        div.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
-        div.style.transform = 'scale(1.05)';
-        div.style.zIndex = '10';
-        div.style.opacity = '1';
-        div.style.transition = 'none';
-        div.style.boxShadow = '0 0 38px rgba(74, 222, 128, 0.75), 0 0 80px rgba(74, 222, 128, 0.55), 0 0 120px rgba(74, 222, 128, 0.35)';
-        div.style.borderColor = 'var(--success)';
-        
-        // Проверяем, что стили применились
-        const computed = window.getComputedStyle(div);
-        console.log('renderDays: стили применены для дня', day.id);
-        console.log('  - классы:', div.className);
-        console.log('  - animation:', computed.animation);
-        console.log('  - transform:', computed.transform);
-        console.log('  - z-index:', computed.zIndex);
-        
-        // Если анимация не работает, пробуем ещё раз
-        if (!computed.animation || computed.animation === 'none') {
-          console.warn('renderDays: анимация не применилась, пробую ещё раз...');
-          setTimeout(() => {
-            div.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
-            console.log('renderDays: повторная попытка применения анимации');
-          }, 100);
-        }
-      }, 50);
-    }
+    // (no inline style hacks here; animations are driven purely by CSS classes)
   });
-  
-  // Добавляем обработчик прокрутки для определения центральной карточки
-  updateCenterCard();
-  container.addEventListener('scroll', updateCenterCard);
 }
 
 // Клик по карточке: решаем/забираем/смотрим награду
 function handleDayClick(day) {
+  // Mobile/overlay "click-through" guard:
+  // when we close the modal (esp. after correct answer), the same tap/click can land on the card underneath.
+  // We suppress day clicks for a short window to ensure the user actually sees the shake state first.
+  if (Date.now() < (window.__suppressDayClicksUntil || 0)) {
+    console.log('handleDayClick: suppressed click-through');
+    return;
+  }
   if (!isDayUnlocked(day.unlock_at)) return;
+  if (isAttemptsLocked(day)) {
+    openDayModal(day);
+    return;
+  }
   const isSolved = !!day.solved_at;
   const isRewardOpened = !!day.reward_opened_at;
 
@@ -303,14 +347,14 @@ function startClaimRewardFlow(day) {
 
   // Убираем day-awaiting-claim и добавляем day-claiming
   el.classList.remove('day-awaiting-claim');
-  el.classList.remove('day-center'); // Временно убираем для анимации
   el.classList.add('day-claiming');
 
-  // Приводим в фокус
-  el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  // Не центрируем принудительно (важнее анимация, чем "прилипание" к центру)
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
 
   // После анимации — показываем модалку с наградой (и только тогда вызываем get_reward)
-  const CLAIM_ANIMATION_MS = 1400;
+  // shake-strong (~1.08s) + pop/flash (~0.55s) with small buffer
+  const CLAIM_ANIMATION_MS = 1700;
   setTimeout(() => {
     console.log('startClaimRewardFlow: анимация завершена, открываю модалку');
     el.classList.remove('day-claiming');
@@ -324,32 +368,6 @@ function openRewardModal(day) {
   openDayModal(day);
 }
 
-// Определение и подсветка центральной карточки
-function updateCenterCard() {
-  const container = document.getElementById('days');
-  if (!container) return;
-  
-  const cards = container.querySelectorAll('.day');
-  const containerRect = container.getBoundingClientRect();
-  const containerCenter = containerRect.left + containerRect.width / 2;
-  
-  cards.forEach(card => {
-    const cardRect = card.getBoundingClientRect();
-    const cardCenter = cardRect.left + cardRect.width / 2;
-    const distance = Math.abs(cardCenter - containerCenter);
-    
-    // Если карточка в центре (в пределах 100px от центра), делаем её активной
-    // НО не добавляем day-center, если карточка ждёт забора награды (чтобы не конфликтовать с анимацией)
-    if (distance < 100 && !card.classList.contains('day-awaiting-claim') && !card.classList.contains('day-claiming')) {
-      card.classList.add('day-center');
-    } else {
-      // Убираем day-center только если это не карточка, которая ждёт забора
-      if (!card.classList.contains('day-awaiting-claim') && !card.classList.contains('day-claiming')) {
-        card.classList.remove('day-center');
-      }
-    }
-  });
-}
 
 // Обновление прогресса
 function updateProgress(days) {
@@ -359,83 +377,6 @@ function updateProgress(days) {
   const solved = days.filter(d => d.solved_at).length;
   const total = days.length;
   progressEl.textContent = `Открыто ${solved} из ${total}`;
-  
-  // Обновляем таймер
-  updateTimer(days);
-}
-
-// Обновление таймера до следующего дня
-function updateTimer(days) {
-  const timerEl = document.getElementById('timer');
-  if (!timerEl) return;
-
-  // Находим следующий неоткрытый день
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const nextDay = days
-    .filter(day => {
-      const unlockDate = new Date(day.unlock_at);
-      unlockDate.setHours(0, 0, 0, 0);
-      return unlockDate > today && !day.solved_at;
-    })
-    .sort((a, b) => new Date(a.unlock_at) - new Date(b.unlock_at))[0];
-
-  if (!nextDay) {
-    // Все дни открыты или решены
-    timerEl.innerHTML = `
-      <div class="timer-label">🎉</div>
-      <div class="timer-display expired">Все дни открыты!</div>
-    `;
-    return;
-  }
-
-  const unlockDate = new Date(nextDay.unlock_at);
-  unlockDate.setHours(0, 0, 0, 0);
-  
-  // Запускаем таймер
-  function updateTimerDisplay() {
-    const now = new Date();
-    const diff = unlockDate - now;
-
-    if (diff <= 0) {
-      timerEl.innerHTML = `
-        <div class="timer-label">День ${nextDay.id} открыт!</div>
-        <div class="timer-display expired">Можно решать!</div>
-      `;
-      // Обновляем дни, чтобы показать новый открытый день
-      setTimeout(() => loadDays(), 1000);
-      return;
-    }
-
-    const daysLeft = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hoursLeft = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutesLeft = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const secondsLeft = Math.floor((diff % (1000 * 60)) / 1000);
-
-    let display = '';
-    if (daysLeft > 0) {
-      display = `${daysLeft}д ${hoursLeft}ч ${minutesLeft}м`;
-    } else if (hoursLeft > 0) {
-      display = `${hoursLeft}ч ${minutesLeft}м ${secondsLeft}с`;
-    } else {
-      display = `${minutesLeft}м ${secondsLeft}с`;
-    }
-
-    timerEl.innerHTML = `
-      <div class="timer-label">До следующего подарка</div>
-      <div class="timer-display">${display}</div>
-    `;
-  }
-
-  // Обновляем сразу
-  updateTimerDisplay();
-  
-  // Обновляем каждую секунду
-  if (timerEl.timerInterval) {
-    clearInterval(timerEl.timerInterval);
-  }
-  timerEl.timerInterval = setInterval(updateTimerDisplay, 1000);
 }
 
 // Открытие модала дня
@@ -447,6 +388,7 @@ function openDayModal(day) {
 
   const isUnlocked = isDayUnlocked(day.unlock_at);
   const isSolved = !!day.solved_at;
+  const isLockedByAttempts = isAttemptsLocked(day);
 
   let html = `
     <button class="modal-close" onclick="closeModal()">×</button>
@@ -459,7 +401,12 @@ function openDayModal(day) {
 
   if (!isUnlocked) {
     html += `
-      <div class="question">🔒 Этот день ещё не открыт. Вернись ${formatDate(day.unlock_at)}!</div>
+      <div class="question">🔒 Этот день ещё не открыт. Откроется ${formatDate(day.unlock_at)}.</div>
+    `;
+  } else if (isLockedByAttempts) {
+    const retryTo = day.attempts_locked_until ? new Date(day.attempts_locked_until).toISOString() : null;
+    html += `
+      <div class="question">😵 Ты использовал(а) все попытки. Можно попробовать снова через ${retryTo ? `<span class="day-countdown" data-countdown-to="${retryTo}">—</span>` : '24 часа'}.</div>
     `;
   } else if (isSolved) {
     // Если решено, показываем награду (она должна быть уже загружена)
@@ -954,6 +901,10 @@ async function checkAnswer(dayId, customAnswer = null) {
       
       // Сразу закрываем модалку и возвращаем на календарь
       closeModal();
+      // ВАЖНО: подавляем "клик сквозь модалку" на мобильных/тач-устройствах.
+      // Иначе тот же tap может мгновенно нажать на карточку под модалкой и открыть reward,
+      // из-за чего тряска видна только на фоне.
+      window.__suppressDayClicksUntil = Date.now() + 800;
       
       // Небольшая задержка для плавного перехода
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -984,6 +935,14 @@ async function checkAnswer(dayId, customAnswer = null) {
 
       if (result.attempts_left !== undefined && attemptsInfo) {
         attemptsInfo.textContent = `Осталось попыток: ${result.attempts_left}`;
+      }
+
+      // Если попытки закончились и пришёл locked_until — подхватываем и показываем таймер
+      if (result.attempts_left === 0 && result.locked_until && attemptsInfo) {
+        attemptsInfo.innerHTML = `Попробуешь через <span class="day-countdown" data-countdown-to="${result.locked_until}">—</span>`;
+        startPerCardTimers();
+        // Перерисуем карточки, чтобы на календаре появился статус "провалил"
+        loadDays().catch(() => {});
       }
     }
   } catch (error) {
@@ -1230,30 +1189,11 @@ function highlightSolvedDay(dayId) {
   
   console.log('highlightSolvedDay: добавляю класс day-awaiting-claim для дня', dayId);
   
-  // Убираем day-center, чтобы не конфликтовал с анимацией
-  dayElement.classList.remove('day-center');
+  // Добавляем класс для анимации
   dayElement.classList.add('day-awaiting-claim');
   
-  // Принудительно применяем стили через inline styles для гарантии
-  requestAnimationFrame(() => {
-    dayElement.style.animation = 'pulse-glow 1.2s ease-in-out infinite, shake 0.4s ease-in-out infinite';
-    dayElement.style.transform = 'scale(1.05)';
-    dayElement.style.zIndex = '10';
-    dayElement.style.opacity = '1';
-    dayElement.style.transition = 'none';
-    dayElement.style.boxShadow = '0 0 38px rgba(74, 222, 128, 0.75), 0 0 80px rgba(74, 222, 128, 0.55), 0 0 120px rgba(74, 222, 128, 0.35)';
-    dayElement.style.borderColor = 'var(--success)';
-    
-    console.log('highlightSolvedDay: inline стили применены. Проверяю computed styles...');
-    const computed = window.getComputedStyle(dayElement);
-    console.log('highlightSolvedDay: animation =', computed.animation);
-    console.log('highlightSolvedDay: transform =', computed.transform);
-    console.log('highlightSolvedDay: z-index =', computed.zIndex);
-    console.log('highlightSolvedDay: opacity =', computed.opacity);
-  });
-  
   // Прокручиваем к элементу
-  dayElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  dayElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   
   // НЕ убираем класс автоматически - он будет убран при открытии модалки
 }

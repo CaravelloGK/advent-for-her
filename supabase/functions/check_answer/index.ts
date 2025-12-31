@@ -9,12 +9,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response(null, { status: 204, headers: corsHeaders })
   }
 
   try {
@@ -103,26 +104,82 @@ serve(async (req) => {
       )
     }
 
-    // 4. Проверяем количество попыток
-    const { count: attemptsCount } = await supabaseAdmin
+    // 4. Проверяем лимит попыток + 24ч lockout после исчерпания
+    const maxAttempts = day.max_attempts || 5
+    const now = new Date()
+
+    // Latest lock (history table). If active -> block.
+    const { data: latestLock } = await supabaseAdmin
+      .from('attempt_locks')
+      .select('locked_until')
+      .eq('day_id', day_id)
+      .order('locked_until', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const lockedUntil = latestLock?.locked_until ? new Date(latestLock.locked_until) : null
+    const isLocked = !!(lockedUntil && lockedUntil.getTime() > now.getTime())
+
+    if (isLocked) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          message: 'Лимит попыток исчерпан. Попробуй позже.',
+          attempts_left: 0,
+          locked_until: lockedUntil!.toISOString(),
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
+
+    // Count attempts in the current window (after last lock expiry if any)
+    const attemptsQuery = supabaseAdmin
       .from('attempts')
       .select('*', { count: 'exact', head: true })
       .eq('day_id', day_id)
-      .gte('created_at', new Date(today).toISOString().split('T')[0])
 
-    const maxAttempts = day.max_attempts || 5
-    const attemptsLeft = Math.max(0, maxAttempts - (attemptsCount || 0))
+    const { count: attemptsCount } = lockedUntil
+      ? await attemptsQuery.gt('created_at', lockedUntil.toISOString())
+      : await attemptsQuery
 
+    const attemptsUsed = attemptsCount || 0
+    const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed)
+
+    // If already exhausted (shouldn't happen without an active lock, but just in case),
+    // compute lock_until from the last incorrect attempt and block.
     if (attemptsLeft <= 0) {
+      const lastIncorrectQ = supabaseAdmin
+        .from('attempts')
+        .select('created_at')
+        .eq('day_id', day_id)
+        .eq('is_correct', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      const { data: lastIncorrect } = lockedUntil
+        ? await lastIncorrectQ.gt('created_at', lockedUntil.toISOString()).maybeSingle()
+        : await lastIncorrectQ.maybeSingle()
+
+      const base = lastIncorrect?.created_at ? new Date(lastIncorrect.created_at) : now
+      const computedLockUntil = new Date(base.getTime() + 24 * 60 * 60 * 1000)
+
+      await supabaseAdmin
+        .from('attempt_locks')
+        .insert({ day_id, locked_until: computedLockUntil.toISOString() })
+
       return new Response(
-        JSON.stringify({ 
-          ok: false, 
-          message: 'Превышен лимит попыток. Попробуй завтра!',
-          attempts_left: 0
+        JSON.stringify({
+          ok: false,
+          message: 'Лимит попыток исчерпан. Попробуй позже.',
+          attempts_left: 0,
+          locked_until: computedLockUntil.toISOString(),
         }),
-        { 
+        {
           status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       )
     }
@@ -269,11 +326,33 @@ serve(async (req) => {
       )
     } else {
       // Неправильный ответ
+      // If this wrong answer exhausts attempts, create a 24h lock from NOW
+      const nextAttemptsLeft = Math.max(0, attemptsLeft - 1)
+      if (nextAttemptsLeft <= 0) {
+        const lockUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+        await supabaseAdmin
+          .from('attempt_locks')
+          .insert({ day_id, locked_until: lockUntil.toISOString() })
+
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            message: 'Лимит попыток исчерпан. Попробуй через 24 часа.',
+            attempts_left: 0,
+            locked_until: lockUntil.toISOString(),
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        )
+      }
+
       return new Response(
         JSON.stringify({
           ok: false,
           message: 'Неправильно, попробуй ещё',
-          attempts_left: attemptsLeft - 1
+          attempts_left: nextAttemptsLeft
         }),
         { 
           status: 200,
