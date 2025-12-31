@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="0 0 768 768">
+  <defs>
+    <!-- More realistic frost: cloudy blur + sharper crystal specks.
+         Transparent background; alpha is encoded in the drawn rects. -->
+    <filter id="frostCloud" x="-25%" y="-25%" width="150%" height="150%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="11" result="n1"/>
+      <feGaussianBlur in="n1" stdDeviation="2.4" result="b1"/>
+      <!-- Increase midtones for milky glass -->
+      <feComponentTransfer in="b1" result="cloud">
+        <feFuncR type="gamma" amplitude="1" exponent="0.75" offset="0.08"/>
+        <feFuncG type="gamma" amplitude="1" exponent="0.78" offset="0.10"/>
+        <feFuncB type="gamma" amplitude="1" exponent="0.88" offset="0.14"/>
+        <feFuncA type="table" tableValues="0 0.55"/>
+      </feComponentTransfer>
+    </filter>
+
+    <filter id="frostCrystals" x="-25%" y="-25%" width="150%" height="150%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.35" numOctaves="2" seed="7" result="n2"/>
+      <!-- Make it specky (crystal grains) -->
+      <feComponentTransfer in="n2" result="speck">
+        <feFuncA type="table" tableValues="0 0 0.1 0.85 1 1"/>
+      </feComponentTransfer>
+      <feGaussianBlur in="speck" stdDeviation="0.35" result="softSpeck"/>
+    </filter>
+  </defs>
+
+  <!-- Cloudy frost layer -->
+  <rect width="768" height="768" filter="url(#frostCloud)" opacity="0.85"/>
+  <!-- Crystal specks layer -->
+  <rect width="768" height="768" filter="url(#frostCrystals)" opacity="0.45"/>
+</svg>
+

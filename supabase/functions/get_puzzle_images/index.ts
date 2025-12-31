@@ -122,7 +122,7 @@ serve(async (req) => {
     }
 
     // Проверяем, что это головоломка с изображениями
-    if (day.puzzle_type !== 'match_images' || !day.puzzle_data?.images) {
+    if (!['match_images', 'chronological_images'].includes(day.puzzle_type) || !day.puzzle_data?.images) {
       return new Response(
         JSON.stringify({ ok: false, message: 'Этот день не содержит головоломку с изображениями' }),
         { 

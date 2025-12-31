@@ -82,26 +82,91 @@ h1.title {
   height: 44px;
   pointer-events: none;
   opacity: 0;
+  /* More twinkles */
   background:
-    radial-gradient(circle at 15% 55%, rgba(255,255,255,0.65) 0 2px, transparent 3px),
-    radial-gradient(circle at 44% 35%, rgba(255,255,255,0.55) 0 2px, transparent 3px),
-    radial-gradient(circle at 72% 55%, rgba(255,255,255,0.65) 0 2px, transparent 3px);
-  animation: title-twinkle 3.8s ease-in-out infinite;
+    radial-gradient(circle at 8% 40%,  rgba(255,255,255,0.70) 0 2px, transparent 3px),
+    radial-gradient(circle at 14% 70%, rgba(255,255,255,0.55) 0 2px, transparent 3px),
+    radial-gradient(circle at 22% 48%, rgba(255,255,255,0.62) 0 2px, transparent 3px),
+    radial-gradient(circle at 30% 65%, rgba(255,255,255,0.50) 0 2px, transparent 3px),
+    radial-gradient(circle at 38% 38%, rgba(255,255,255,0.68) 0 2px, transparent 3px),
+    radial-gradient(circle at 46% 58%, rgba(255,255,255,0.58) 0 2px, transparent 3px),
+    radial-gradient(circle at 54% 34%, rgba(255,255,255,0.65) 0 2px, transparent 3px),
+    radial-gradient(circle at 62% 62%, rgba(255,255,255,0.52) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 40%, rgba(255,255,255,0.70) 0 2px, transparent 3px),
+    radial-gradient(circle at 78% 68%, rgba(255,255,255,0.54) 0 2px, transparent 3px),
+    radial-gradient(circle at 86% 44%, rgba(255,255,255,0.66) 0 2px, transparent 3px),
+    radial-gradient(circle at 93% 62%, rgba(255,255,255,0.52) 0 2px, transparent 3px);
+  animation: title-twinkle 3.2s ease-in-out infinite;
 }
 
 @keyframes title-twinkle {
   0%, 100% { opacity: 0.0; }
-  42% { opacity: 0.22; }
-  50% { opacity: 0.05; }
-  58% { opacity: 0.20; }
+  35% { opacity: 0.26; }
+  45% { opacity: 0.08; }
+  55% { opacity: 0.28; }
+  70% { opacity: 0.12; }
 }
 
-.progress {
-  text-align: center;
-  padding: 0 32px 24px;
-  color: var(--muted);
+/* Year line under the main title */
+.title-year {
+  display: block;
+  margin-top: 10px;
+}
+
+.title-year-text {
+  display: inline-block;
+  font-size: 22px;
+  letter-spacing: 6px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  opacity: 0.95;
+  position: relative;
+}
+
+.title-year-text::after {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 50%;
+  height: 18px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 10% 40%, rgba(255,255,255,0.70) 0 2px, transparent 3px),
+    radial-gradient(circle at 28% 60%, rgba(255,255,255,0.55) 0 2px, transparent 3px),
+    radial-gradient(circle at 46% 35%, rgba(255,255,255,0.68) 0 2px, transparent 3px),
+    radial-gradient(circle at 64% 62%, rgba(255,255,255,0.52) 0 2px, transparent 3px),
+    radial-gradient(circle at 82% 40%, rgba(255,255,255,0.70) 0 2px, transparent 3px);
+  animation: title-twinkle 3.6s ease-in-out infinite;
+}
+
+.disclaimer {
+  max-width: 760px;
+  margin: 0 auto 18px;
+  padding: 0 32px;
+  color: rgba(255, 255, 255, 0.78);
   font-size: 14px;
-  letter-spacing: 0.5px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.disclaimer p {
+  margin: 8px 0;
+}
+
+.disclaimer b {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.disclaimer-sign {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
 }
 
 .timer {
@@ -136,7 +201,8 @@ h1.title {
   display: flex;
   flex-direction: row;
   gap: 24px;
-  padding: 32px;
+  /* Big safe padding so outer glow never gets clipped by the scroll container */
+  padding: 128px;
   overflow-x: auto;
   overflow-y: visible;
   scroll-behavior: smooth;
@@ -178,17 +244,18 @@ h1.title {
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
+  /* Prevent blend-mode layers from affecting siblings; also helps with glow artifacts */
+  isolation: isolate;
+  z-index: 1;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   background: var(--green-gradient);
   border: 2px solid rgba(255, 255, 255, 0.1);
 }
 
-.day:nth-child(odd) {
-  background: var(--green-gradient);
-}
-
+/* All cards are green (no red alternation) */
+.day:nth-child(odd),
 .day:nth-child(even) {
-  background: var(--red-gradient);
+  background: var(--green-gradient);
 }
 
 .day:hover:not(.day-locked) {
@@ -198,35 +265,330 @@ h1.title {
 }
 
 .day-locked {
-  opacity: 0.6;
+  /* Frosted window / icy card */
+  opacity: 0.98;
   cursor: not-allowed;
   position: relative;
   overflow: hidden;
-  filter: grayscale(0.8);
+  filter: saturate(0.75) contrast(1.05);
+  background:
+    radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.26) 0%, transparent 55%),
+    radial-gradient(circle at 75% 20%, rgba(180, 230, 255, 0.18) 0%, transparent 60%),
+    linear-gradient(135deg, rgba(240, 252, 255, 0.14) 0%, rgba(115, 190, 255, 0.08) 55%, rgba(255, 255, 255, 0.10) 100%);
+  border-color: rgba(210, 245, 255, 0.38);
+  box-shadow:
+    0 6px 26px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.12) inset,
+    0 0 24px rgba(160, 220, 255, 0.18);
+  /* keep the base readable; local blur is applied only where frost overlay exists */
+  backdrop-filter: none;
 }
 
 .day-locked .day-content {
-  filter: blur(4px);
-  opacity: 0.4;
+  /* Do NOT blur globally — thawed areas must be clear. */
+  filter: none;
+  opacity: 0.70;
   pointer-events: none;
 }
 
-.day-locked::before {
+/* Frost overlay moved to a dedicated .frost-overlay element (see above) */
+
+/* Dedicated frost overlay (masked + backdrop blur) */
+.frost-overlay {
+  position: absolute;
+  inset: -12px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: var(--frost-opacity, 0.92);
+  background:
+    /* photo texture (main) */
+    url("assets/ice-frost.png"),
+    /* subtle procedural grain to avoid banding */
+    url("assets/frost-texture.svg"),
+    radial-gradient(circle at 8% 8%, rgba(255, 255, 255, 0.50) 0%, transparent 62%),
+    radial-gradient(circle at 92% 10%, rgba(210, 245, 255, 0.42) 0%, transparent 66%),
+    radial-gradient(circle at 10% 92%, rgba(255, 255, 255, 0.34) 0%, transparent 70%),
+    radial-gradient(circle at 92% 92%, rgba(210, 240, 255, 0.32) 0%, transparent 72%),
+    radial-gradient(closest-side at 50% 0%, rgba(255, 255, 255, 0.22) 0%, transparent 70%),
+    radial-gradient(closest-side at 0% 50%, rgba(235, 250, 255, 0.18) 0%, transparent 70%),
+    radial-gradient(closest-side at 100% 50%, rgba(235, 250, 255, 0.18) 0%, transparent 70%),
+    radial-gradient(closest-side at 50% 100%, rgba(255, 255, 255, 0.20) 0%, transparent 72%);
+  background-size:
+    720px 720px,
+    900px 900px,
+    auto,
+    auto,
+    auto,
+    auto,
+    auto,
+    auto,
+    auto;
+  background-position: 0 0;
+  background-repeat: repeat;
+  background-blend-mode:
+    soft-light,
+    screen,
+    normal,
+    normal,
+    normal,
+    normal,
+    normal,
+    normal,
+    normal;
+  mix-blend-mode: screen;
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  /* lighter post-processing: photo texture already has detail */
+  filter: blur(0.45px) contrast(1.08) saturate(1.05);
+  animation: frost-drift 80s linear infinite;
+
+  /* Mask controls "where frost exists" */
+  -webkit-mask-image: var(--frost-mask, linear-gradient(#fff, #fff));
+  mask-image: var(--frost-mask, linear-gradient(#fff, #fff));
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: cover;
+  mask-size: cover;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* Frost overlay is only visible on date-locked cards */
+.day:not(.day-locked) .frost-overlay {
+  display: none;
+}
+
+/* Attempts-locked overlay: grayscale "glass" + ❌, card is not openable */
+.attempts-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: none;
+  background: rgba(15, 18, 22, 0.30);
+  border-radius: 20px;
+  -webkit-backdrop-filter: blur(14px) grayscale(1) contrast(1.1);
+  backdrop-filter: blur(14px) grayscale(1) contrast(1.1);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.10) inset,
+    0 10px 24px rgba(0, 0, 0, 0.18) inset;
+}
+
+.day.day-attempts-locked {
+  cursor: not-allowed;
+  filter: saturate(0.55) grayscale(0.35);
+}
+
+.day.day-attempts-locked .attempts-overlay {
+  display: block;
+}
+
+.day.day-attempts-locked .attempts-overlay::after {
+  content: '❌';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 66px;
+  opacity: 0.95;
+  text-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.55),
+    0 0 26px rgba(255, 255, 255, 0.18);
+}
+
+.day-locked::after {
+  /* Lock icon sits above the frost texture */
   content: '🔒';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 64px;
-  z-index: 2;
-  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.8);
+  z-index: 6;
   pointer-events: none;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.65),
+    0 0 22px rgba(190, 235, 255, 0.35);
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.22));
+}
+
+/* Timer/status must always stay readable above frost layers */
+.day-status {
+  position: relative;
+  z-index: 9;
+}
+
+.day-status-locked,
+.day-status-attempts-locked {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Bigger, clearer countdown text */
+.day-status.day-status-locked,
+.day-status.day-status-attempts-locked {
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  letter-spacing: 0.2px;
+}
+
+.day-countdown {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Subtle cracks overlay (barely visible) */
+.day-locked .day-content::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.10;
+  background: url("assets/ice-cracks.svg");
+  background-size: 900px 900px;
+  background-position: 50% 50%;
+  mix-blend-mode: overlay;
+  filter: blur(0.2px) contrast(1.1);
+}
+
+@keyframes frost-drift {
+  /* Single position anim applies to all background layers => no layer-count mismatch, no jumps */
+  0%   { background-position: 0 0; }
+  100% { background-position: 240px 160px; }
 }
 
 .day-solved {
   border-color: var(--success);
   box-shadow: 0 0 20px rgba(74, 222, 128, 0.4);
+}
+
+/* =========================================================
+   Solved-but-not-claimed card highlight + shake
+   - day-awaiting-claim: starts shaking immediately after modal closes (class is applied after loadDays)
+   - day-claiming: on click, stronger glow + simple "open/flash" animation
+   Glow is on the card itself (box-shadow/filter) so overlays inside won't cover it.
+   ========================================================= */
+
+.day.day-awaiting-claim {
+  z-index: 999; /* stay above neighbors so glow isn't cut by their borders */
+  border-color: rgba(74, 222, 128, 0.85);
+  box-shadow:
+    0 10px 34px rgba(0, 0, 0, 0.45),
+    0 0 0 2px rgba(74, 222, 128, 0.35),
+    0 0 34px rgba(74, 222, 128, 0.55),
+    0 0 110px rgba(74, 222, 128, 0.25);
+  /* Avoid filter-based drop-shadow seams ("vertical line" artifacts in Chrome) */
+  filter: none;
+  outline: 2px solid rgba(74, 222, 128, 0.28);
+  outline-offset: 2px;
+  transform-origin: 50% 55%;
+  will-change: transform, box-shadow, filter;
+  animation:
+    shake-rumble-smooth 0.34s linear 0s infinite,
+    glow-pulse 1.35s ease-in-out 0s infinite;
+}
+
+.day.day-claiming {
+  z-index: 1000;
+  border-color: rgba(74, 222, 128, 0.95);
+  box-shadow:
+    0 14px 44px rgba(0, 0, 0, 0.55),
+    0 0 0 3px rgba(74, 222, 128, 0.42),
+    0 0 56px rgba(74, 222, 128, 0.75),
+    0 0 150px rgba(74, 222, 128, 0.38);
+  filter: none;
+  outline: 2px solid rgba(74, 222, 128, 0.34);
+  outline-offset: 2px;
+  animation: claim-jolt 1.7s ease-out 0s 1 both;
+}
+
+/* Flash overlay inside card (simple but "wow") */
+.day.day-claiming::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  pointer-events: none;
+  z-index: 8; /* below .day-status (z=9), above content */
+  background:
+    radial-gradient(circle at 50% 55%, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.18) 38%, transparent 62%),
+    linear-gradient(120deg, transparent 0 38%, rgba(255,255,255,0.25) 44%, transparent 52% 100%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transform: rotate(-8deg);
+  animation: claim-flash 1.7s ease-out 0s 1 both;
+}
+
+@keyframes shake-strong {
+  0%   { transform: translate3d(0, 0, 0) rotate(0); }
+  10%  { transform: translate3d(-2px, 1px, 0) rotate(-1.2deg); }
+  20%  { transform: translate3d(3px, -1px, 0) rotate(1.6deg); }
+  30%  { transform: translate3d(-4px, 2px, 0) rotate(-1.8deg); }
+  40%  { transform: translate3d(4px, -2px, 0) rotate(2.0deg); }
+  55%  { transform: translate3d(-3px, 1px, 0) rotate(-1.4deg); }
+  70%  { transform: translate3d(2px, -1px, 0) rotate(1.0deg); }
+  85%  { transform: translate3d(-1px, 1px, 0) rotate(-0.6deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0); }
+}
+
+@keyframes shake-rumble-smooth {
+  /* Same intensity, but smoother loop (0% == 100%), less "snappy" */
+  0%   { transform: translate3d(0, 0, 0) rotate(0) scale(1.00); }
+  8%   { transform: translate3d(-1.4px, 0.9px, 0) rotate(-0.9deg) scale(1.008); }
+  16%  { transform: translate3d(2.0px, -1.2px, 0) rotate(1.2deg) scale(1.010); }
+  24%  { transform: translate3d(-2.6px, 1.6px, 0) rotate(-1.3deg) scale(1.012); }
+  32%  { transform: translate3d(2.9px, -1.8px, 0) rotate(1.4deg) scale(1.014); }
+  40%  { transform: translate3d(-2.2px, 1.4px, 0) rotate(-1.1deg) scale(1.012); }
+  48%  { transform: translate3d(1.8px, -1.1px, 0) rotate(0.9deg) scale(1.010); }
+  56%  { transform: translate3d(-1.6px, 1.0px, 0) rotate(-0.8deg) scale(1.010); }
+  64%  { transform: translate3d(2.2px, -1.4px, 0) rotate(1.0deg) scale(1.012); }
+  72%  { transform: translate3d(-2.8px, 1.7px, 0) rotate(-1.3deg) scale(1.014); }
+  80%  { transform: translate3d(2.4px, -1.5px, 0) rotate(1.1deg) scale(1.012); }
+  88%  { transform: translate3d(-1.6px, 1.0px, 0) rotate(-0.8deg) scale(1.010); }
+  96%  { transform: translate3d(0.9px, -0.6px, 0) rotate(0.4deg) scale(1.006); }
+  100% { transform: translate3d(0, 0, 0) rotate(0) scale(1.00); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 10px 34px rgba(0, 0, 0, 0.45),
+      0 0 0 2px rgba(74, 222, 128, 0.30),
+      0 0 30px rgba(74, 222, 128, 0.48),
+      0 0 100px rgba(74, 222, 128, 0.22);
+    filter: drop-shadow(0 0 18px rgba(74, 222, 128, 0.22));
+  }
+  50% {
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.50),
+      0 0 0 2px rgba(74, 222, 128, 0.40),
+      0 0 44px rgba(74, 222, 128, 0.66),
+      0 0 130px rgba(74, 222, 128, 0.30);
+    filter: drop-shadow(0 0 26px rgba(74, 222, 128, 0.30));
+  }
+}
+
+@keyframes claim-jolt {
+  0%   { transform: translate3d(0,0,0) scale(1); }
+  10%  { transform: translate3d(0,-2px,0) scale(1.02); }
+  22%  { transform: translate3d(0,0,0) scale(1.045); }
+  55%  { transform: translate3d(0,0,0) scale(1.02); }
+  100% { transform: translate3d(0,0,0) scale(1); }
+}
+
+@keyframes claim-flash {
+  0%   { opacity: 0; transform: scale(0.9) rotate(-8deg); }
+  18%  { opacity: 0.9; transform: scale(1.02) rotate(-8deg); }
+  55%  { opacity: 0.35; transform: scale(1.10) rotate(-8deg); }
+  100% { opacity: 0; transform: scale(1.18) rotate(-8deg); }
 }
 
 .day-solved::after {
@@ -256,6 +618,13 @@ h1.title {
   letter-spacing: 0.5px;
   margin-bottom: 8px;
   text-align: center;
+  position: relative;
+  z-index: 7; /* above frost-overlay so text stays readable */
+  /* Keep readable on bright/icy cards */
+  -webkit-text-stroke: 0.8px rgba(0, 0, 0, 0.35);
+  text-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.40),
+    0 0 1px rgba(0, 0, 0, 0.55);
 }
 
 .day-number {
@@ -265,7 +634,13 @@ h1.title {
   text-align: center;
   line-height: 1;
   margin: 20px 0;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 7; /* above frost-overlay so digits stay readable */
+  /* Make digits readable on bright/icy cards */
+  -webkit-text-stroke: 1.6px rgba(0, 0, 0, 0.38);
+  text-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.38),
+    0 0 1px rgba(0, 0, 0, 0.60);
   font-variant-numeric: tabular-nums;
 }
 
@@ -420,6 +795,43 @@ h1.title {
   backdrop-filter: blur(5px);
 }
 
+/* Safety: never allow question images to blow up the modal */
+.question img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* One or multiple images inside modal question */
+.puzzle-question-images {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.puzzle-question-images-bottom {
+  margin-top: 12px;
+}
+
+.puzzle-image,
+.puzzle-question-image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.15);
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .puzzle-image,
+  .puzzle-question-image {
+    height: 150px;
+  }
+}
+
 .answer-input {
   width: 100%;
   padding: 14px 18px;
@@ -569,6 +981,217 @@ h1.title {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* Hide empty attempts box (it is injected only when needed) */
+.attempts-info:empty {
+  display: none;
+}
+
+/* =========================================================
+   Chronological images puzzle (4 slots in a row)
+   ========================================================= */
+
+.chrono-puzzle {
+  margin-top: 14px;
+}
+
+.chrono-instruction {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+}
+
+.chrono-slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.chrono-slot {
+  position: relative;
+}
+
+.chrono-slot-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.chrono-drop {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.chrono-drop.drag-over {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.10);
+  transform: translateY(-1px);
+}
+
+.chrono-images {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.chrono-image-item {
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.15);
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.chrono-image-item:active {
+  cursor: grabbing;
+}
+
+.chrono-image-item.dragging {
+  opacity: 0.7;
+  transform: scale(1.03);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.chrono-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.chrono-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 10px 0 6px;
+}
+
+.chrono-actions .btn {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 768px) {
+  .chrono-slots,
+  .chrono-images {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* =========================================================
+   Match images puzzle (fixed-size answer options + drop zones)
+   ========================================================= */
+
+.match-puzzle {
+  margin-top: 14px;
+}
+
+.match-instruction {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+}
+
+.match-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.match-numbers,
+.match-images {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.match-number-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-number-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+
+.match-image-drop {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.match-image-drop.drag-over {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.10);
+  transform: translateY(-1px);
+}
+
+.drop-placeholder {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  padding: 8px;
+  line-height: 1.2;
+}
+
+.match-image-item {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.15);
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.match-image-item:active {
+  cursor: grabbing;
+}
+
+.match-image-item.dragging {
+  opacity: 0.7;
+  transform: scale(1.03);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.match-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .match-container {
+    grid-template-columns: 1fr;
+  }
+}
+
 .modal-footer {
   padding-top: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.2);
@@ -589,8 +1212,8 @@ h1.title {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* Декоративные элементы для панелей */
-.day::after {
+/* Декоративные элементы для панелей (не для замороженных карточек) */
+.day:not(.day-locked)::after {
   content: '';
   position: absolute;
   top: 0;
@@ -624,7 +1247,7 @@ h1.title {
   }
 
   #days {
-    padding: 16px;
+    padding: 64px;
     gap: 16px;
   }
 

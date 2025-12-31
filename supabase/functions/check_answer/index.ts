@@ -140,6 +140,9 @@ serve(async (req) => {
       .from('attempts')
       .select('*', { count: 'exact', head: true })
       .eq('day_id', day_id)
+      // Count only WRONG attempts towards the limit.
+      // Correct attempts shouldn't burn tries (and day becomes solved anyway).
+      .eq('is_correct', false)
 
     const { count: attemptsCount } = lockedUntil
       ? await attemptsQuery.gt('created_at', lockedUntil.toISOString())
@@ -230,6 +233,33 @@ serve(async (req) => {
       } catch (e) {
         // Если не удалось распарсить JSON, ответ неправильный
         console.error('Ошибка парсинга ответа для match_images:', e)
+        isCorrect = false
+      }
+    } else if (day.puzzle_type === 'chronological_images') {
+      // Для головоломки "расположи в хронологическом порядке"
+      // Формат ответа: JSON массив из 4 чисел (imageId) в порядке слева-направо, например [2,0,3,1]
+      try {
+        const userOrder = JSON.parse(answer)
+        let correctOrder
+
+        if (typeof day.correct_answer === 'string') {
+          correctOrder = JSON.parse(day.correct_answer)
+        } else {
+          correctOrder = day.correct_answer
+        }
+
+        if (Array.isArray(userOrder) && Array.isArray(correctOrder)) {
+          // Require exact match (order matters)
+          if (userOrder.length !== correctOrder.length) {
+            isCorrect = false
+          } else {
+            isCorrect = userOrder.every((v, i) => v === correctOrder[i])
+          }
+        } else {
+          isCorrect = false
+        }
+      } catch (e) {
+        console.error('Ошибка парсинга ответа для chronological_images:', e)
         isCorrect = false
       }
     } else {

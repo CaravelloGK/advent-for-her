@@ -110,6 +110,8 @@ serve(async (req) => {
         .from("attempts")
         .select("*", { count: "exact", head: true })
         .eq("day_id", dayId)
+        // Count only WRONG attempts towards the limit.
+        .eq("is_correct", false)
 
       const { count: attemptsCount } = lockedUntil
         ? await attemptsQuery.gt("created_at", lockedUntil.toISOString())

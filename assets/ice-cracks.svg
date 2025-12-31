@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Subtle ice cracks overlay. Designed to be barely visible and scale nicely. -->
+  <defs>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="rgba(255,255,255,0.00)"/>
+      <stop offset="0.45" stop-color="rgba(255,255,255,0.20)"/>
+      <stop offset="1" stop-color="rgba(255,255,255,0.05)"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="0.8"/>
+    </filter>
+  </defs>
+
+  <g fill="none" stroke="url(#fade)" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)">
+    <path stroke-width="2"
+      d="M140 250
+         C 220 310, 240 380, 330 420
+         S 460 520, 520 610
+         S 640 720, 760 760
+         S 890 820, 940 920"/>
+
+    <path stroke-width="1.6"
+      d="M310 190
+         C 360 240, 370 290, 410 330
+         S 500 430, 520 470
+         S 610 560, 650 650"/>
+
+    <path stroke-width="1.3"
+      d="M610 210
+         C 560 290, 600 350, 650 400
+         S 750 500, 790 560
+         S 830 660, 860 740"/>
+
+    <path stroke-width="1.2"
+      d="M210 690
+         C 300 650, 340 610, 410 590
+         S 560 540, 650 520
+         S 780 480, 900 430"/>
+
+    <!-- tiny branches -->
+    <path stroke-width="1"
+      d="M410 330 C 380 350, 360 380, 350 410"/>
+    <path stroke-width="1"
+      d="M650 400 C 690 420, 720 440, 740 470"/>
+    <path stroke-width="1"
+      d="M520 610 C 490 650, 470 690, 450 740"/>
+  </g>
+</svg>
+
